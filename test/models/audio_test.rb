@@ -22,4 +22,17 @@ class LongformTranscriptAudioTest < ActiveSupport::TestCase
       refute audio.reusable?(sha256: Digest::SHA256.file(file.path).hexdigest, duration_ms: nil)
     end
   end
+
+  test "same size corruption with unchanged mtime is not reusable" do
+    Tempfile.create do |file|
+      file.write("original")
+      file.flush
+      checksum = Digest::SHA256.file(file.path).hexdigest
+      timestamp = File.mtime(file.path)
+      File.binwrite(file.path, "tampered")
+      File.utime(timestamp, timestamp, file.path)
+
+      refute LongformTranscript::Audio.new(file.path).reusable?(sha256: checksum, duration_ms: 1_000)
+    end
+  end
 end
