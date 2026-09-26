@@ -9,7 +9,7 @@ require "longform_transcript/engine"
 module LongformTranscript
   class << self
     attr_accessor :storage_root, :queue_name, :chunk_duration, :chunk_overlap, :download_limit,
-      :stale_after, :publication_callback
+      :stale_after, :publication_callback, :chunk_concurrency
 
     def configure
       yield self
@@ -24,6 +24,7 @@ module LongformTranscript
   self.queue_name = :transcripts
   self.chunk_duration = 5.minutes
   self.chunk_overlap = 5.seconds
+  self.chunk_concurrency = 2
   self.download_limit = 1024**3
   self.stale_after = 30.minutes
 end

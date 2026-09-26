@@ -41,6 +41,38 @@ class LongformTranscriptSpeakersTest < ActiveSupport::TestCase
     assert_equal %w[speaker_2 speaker_1], result.pluck("speaker_id")
   end
 
+  test "word mapping agrees with exhaustive matching across repeated tokens timestamps and ties" do
+    random = Random.new(20260926)
+    speakers = LongformTranscript::Speakers.new([])
+    100.times do |sample|
+      previous = 40.times.map do
+        word("speaker_#{random.rand(1..3)}", random.rand(0..20) * 100, [ "Echo!", "TREE", "", "river" ].sample(random: random))
+      end.shuffle(random: random)
+      incoming = previous.sample(20, random: random).map do |candidate|
+        word("local_#{random.rand(1..3)}", candidate.fetch("start_ms") + [ -251, -250, 0, 250, 251 ].sample(random: random),
+          candidate.fetch("text").downcase)
+      end
+      expected = {}
+      candidates = previous.group_by { |item| item.fetch("speaker_id") }
+      incoming.group_by { |item| item.fetch("speaker_id") }.each do |local, words|
+        votes = candidates.map do |stable, prior|
+          count = words.count do |item|
+            token = LongformTranscript::Text.normalize(item.fetch("text"))
+            token.present? && prior.any? do |candidate|
+              token == LongformTranscript::Text.normalize(candidate.fetch("text")) &&
+                (item.fetch("start_ms") - candidate.fetch("start_ms")).abs <= 250
+            end
+          end
+          [ stable, count ]
+        end
+        stable, count = votes.reject { |speaker, _| expected.value?(speaker) }.max_by(&:last)
+        expected[local] = stable if count.to_i >= 2
+      end
+
+      assert_equal expected, speakers.send(:word_mapping, previous, incoming), "sample #{sample}"
+    end
+  end
+
   private
 
   def word(speaker, start_ms, text)

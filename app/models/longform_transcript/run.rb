@@ -92,21 +92,24 @@ module LongformTranscript
       nil
     end
 
-    def process_next_chunk!
-      return if status == "completed"
+    def process_next_chunk! = process_next_batch!(limit: 1)
+
+    def process_next_batch!(limit: LongformTranscript.chunk_concurrency)
+      raise ArgumentError, "Chunk concurrency must be a positive integer" unless limit.is_a?(Integer) && limit.positive?
+      return if reload.status == "completed"
+      return finalize_if_complete! if chunks.exists? && chunks.where.not(status: "completed").none?
       return unless ensure_audio!
 
-      chunk = claim_next_chunk!
-      return finalize_if_complete! unless chunk
-
-      process_chunk!(chunk)
+      process_chunks!(claim_next_chunks!(limit))
       finalize_if_complete!
     end
 
     def work_remaining?
       reload
+      return false if status.in?(%w[completed failed]) || chunks.where(status: "processing").exists?
+
       chunk = chunks.where.not(status: "completed").ordered.first
-      status != "completed" && chunk.present? && (chunk.status == "pending" || chunk.retry_available?)
+      chunk.present? && (chunk.status == "pending" || chunk.retry_available?)
     end
 
     def retry_invalid_output!
@@ -172,9 +175,13 @@ module LongformTranscript
     end
 
     def ensure_audio!
-      return true if audio.reusable?(sha256: source_audio_sha256, duration_ms: audio_duration_ms)
+      reusable = instrument_phase("audio_cache_check") do
+        audio.reusable?(sha256: source_audio_sha256, duration_ms: audio_duration_ms)
+      end
+      return true if reusable
 
       claimed = with_lock do
+        next false if status == "completed"
         next false if audio_claimed_at && audio_claimed_at > LongformTranscript.stale_after.ago
         update!(audio_claimed_at: Time.current, status: "processing", started_at: started_at || Time.current)
         true
@@ -193,8 +200,8 @@ module LongformTranscript
         update!(source_audio_sha256: digest, audio_duration_ms: duration_ms, status: "processing", audio_claimed_at: nil,
           started_at: started_at || Time.current, failed_at: nil, failure_code: nil)
         prepare_chunks!(digest, duration_ms)
+        FileUtils.mv(temporary_path, audio_path)
       end
-      FileUtils.mv(temporary_path, audio_path)
       true
     rescue ExternalFailure
       update!(audio_claimed_at: nil)
@@ -216,21 +223,25 @@ module LongformTranscript
       end
     end
 
-    def claim_next_chunk!
-      with_lock do
-        release_stale_claims
-        return if chunks.where(status: "processing").exists?
+    def claim_next_chunk! = claim_next_chunks!(1).first
 
-        chunk = chunks.where.not(status: "completed").ordered.first
-        return unless chunk
-        unless chunk.status == "pending" || chunk.retry_available?
-          update!(status: "failed", failed_at: Time.current, failure_code: chunk.failure_code)
-          return
+    def claim_next_chunks!(limit)
+      with_lock do
+        next [] if status == "completed"
+        release_stale_claims
+        terminal = chunks.where(status: "failed").where("retryable = ? OR retry_count >= ?", false, Chunk::MAX_RETRIES).first
+        if terminal
+          update!(status: "failed", failed_at: Time.current, failure_code: terminal.failure_code)
+          next []
         end
+        next [] if chunks.where(status: "processing").exists?
+
         now = Time.current
-        chunk.update!(status: "processing", retry_count: chunk.retry_count + 1, claimed_at: now,
-          started_at: chunk.started_at || now, failed_at: nil, failure_code: nil)
-        chunk
+        chunks.where.not(status: "completed").ordered.limit(limit).map do |chunk|
+          chunk.update!(status: "processing", retry_count: chunk.retry_count + 1, claimed_at: now,
+            started_at: chunk.started_at || now, failed_at: nil, failure_code: nil)
+          chunk
+        end
       end
     end
 
@@ -240,7 +251,32 @@ module LongformTranscript
         claimed_at: nil, updated_at: Time.current)
     end
 
-    def process_chunk!(chunk)
+    def process_chunks!(claimed)
+      results = Queue.new
+      workers = claimed.map do |chunk|
+        Thread.new do
+          result, latency_ms = Rails.application.executor.wrap { transcribe_chunk(chunk) }
+          results << [ chunk, result, latency_ms, nil ]
+        rescue StandardError => error
+          results << [ chunk, nil, nil, error ]
+        end
+      end
+      failure = nil
+      claimed.size.times do
+        begin
+          result = ActiveSupport::Dependencies.interlock.permit_concurrent_loads { results.pop }
+          record_chunk_result!(*result)
+        rescue StandardError => error
+          failure ||= error
+        end
+      end
+      raise failure if failure
+    ensure
+      ActiveSupport::Dependencies.interlock.permit_concurrent_loads { workers&.each(&:join) }
+    end
+
+    # Only file and provider work runs in child threads; the job thread owns all database writes.
+    def transcribe_chunk(chunk)
       Dir.mktmpdir("longform-transcript-chunk") do |directory|
         clip_path = Pathname(directory).join("chunk-#{chunk.number}.mp3")
         instrument_phase("clip", chunk_number: chunk.number) { create_clip!(chunk, clip_path) }
@@ -249,11 +285,18 @@ module LongformTranscript
           Transcriber.new(model: model, profile: profile).transcribe(clip_path, chunk)
         end
         latency_ms = ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - started) * 1_000).round
-        stable_turns = stabilize_speakers(result.turns, chunk, result.words)
-        mapping = result.turns.zip(stable_turns).to_h { |local, stable| [ local.fetch("speaker_id"), stable.fetch("speaker_id") ] }
-        result.words.each { |word| word["speaker_id"] = mapping.fetch(word.fetch("speaker_id")) }
-        complete_chunk!(chunk, stable_turns, result.words, result.response, latency_ms)
+        [ result, latency_ms ]
       end
+    end
+
+    def record_chunk_result!(chunk, result, latency_ms, error)
+      raise error if error
+
+      # Reconciliation used to validate this before saving each chunk. Keep malformed
+      # provider results retryable rather than discovering them only during assembly.
+      speakers = result.turns.to_h { |turn| [ turn.fetch("speaker_id"), true ] }
+      result.words.each { |word| speakers.fetch(word.fetch("speaker_id")) }
+      complete_chunk!(chunk, result.turns, result.words, result.response, latency_ms)
     rescue ExternalFailure => error
       fail_chunk!(chunk, error.code, retryable: error.retryable?)
     rescue *RETRYABLE_ERRORS
@@ -266,9 +309,10 @@ module LongformTranscript
     end
 
     def complete_chunk!(chunk, turns, words, response, latency_ms)
-      chunk.with_lock do
-        return if chunk.status == "completed"
-        chunk.update!(status: "completed", output: { "turns" => turns, "words" => words },
+      with_lock do
+        return unless current_claim?(chunk)
+
+        chunk.update!(status: "completed", output: { "turns" => turns, "words" => words, "speaker_scope" => "local" },
           model: response_model(response), input_tokens: response.tokens.input.to_i,
           output_tokens: response.tokens.output.to_i, reported_cost_usd: response.tokens.reported_cost.to_d,
           latency_ms: latency_ms, completed_at: Time.current, claimed_at: nil, failure_code: nil)
@@ -276,19 +320,25 @@ module LongformTranscript
     end
 
     def fail_chunk!(chunk, code, retryable:)
-      chunk.with_lock do
+      with_lock do
+        return unless current_claim?(chunk)
+
         chunk.update!(status: "failed", retryable: retryable, failure_code: code, failed_at: Time.current, claimed_at: nil)
+        update!(status: "failed", failed_at: Time.current, failure_code: code) unless chunk.retry_available?
       end
-      terminal = with_lock do
-        next false if chunk.retry_available?
-        update!(status: "failed", failed_at: Time.current, failure_code: code)
-        true
-      end
-      FileUtils.rm_rf(work_directory) if terminal
+    end
+
+    def current_claim?(chunk)
+      chunks.where(id: chunk.id, status: "processing", retry_count: chunk.retry_count, claimed_at: chunk.claimed_at).exists?
     end
 
     def finalize_if_complete!
       with_lock do
+        return true if status == "completed"
+        if status == "failed" && chunks.where(status: "processing").none?
+          FileUtils.rm_rf(work_directory)
+          return
+        end
         return unless chunks.exists? && chunks.where.not(status: "completed").none?
 
         LongformTranscript::Turn.where(run_id: id).delete_all
@@ -305,7 +355,26 @@ module LongformTranscript
       true
     end
 
-    def assembled_turn_attributes = Assembler.new(chunks.ordered.to_a).turns
+    def assembled_turn_attributes
+      completed = chunks.ordered.to_a
+      previous = []
+      instrument_phase("speaker_reconciliation") do
+        completed.each do |chunk|
+          chunk.run = self
+          if chunk.output["speaker_scope"] == "local"
+            local_turns = chunk.output.fetch("turns")
+            words = chunk.output.fetch("words")
+            stable_turns = Speakers.new(previous).stabilize(local_turns, chunk, words)
+            mapping = local_turns.zip(stable_turns).to_h { |local, stable| [ local.fetch("speaker_id"), stable.fetch("speaker_id") ] }
+            stable_words = words.map { |word| word.merge("speaker_id" => mapping.fetch(word.fetch("speaker_id"))) }
+            chunk.update!(output: { "turns" => stable_turns, "words" => stable_words })
+          end
+          previous << chunk
+        end
+      end
+      instrument_phase("assembly") { Assembler.new(completed).turns }
+    end
+
     def stabilize_speakers(turns, chunk, words = []) = Speakers.new(completed_chunks).stabilize(turns, chunk, words)
     def completed_chunks = chunks.where(status: "completed").ordered.to_a
     def response_model(response) = (response.respond_to?(:model) ? response.model : response.model_id).presence || model

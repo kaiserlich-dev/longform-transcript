@@ -8,9 +8,11 @@ class LongformTranscriptReplayTest < ActiveJob::TestCase
   setup do
     @old_duration = LongformTranscript.chunk_duration
     @old_overlap = LongformTranscript.chunk_overlap
+    @old_concurrency = LongformTranscript.chunk_concurrency
     @old_key = RubyLLM.config.openrouter_api_key
     LongformTranscript.chunk_duration = 4.seconds
     LongformTranscript.chunk_overlap = 1.second
+    LongformTranscript.chunk_concurrency = 1
     RubyLLM.config.openrouter_api_key = "test"
     @fixture = JSON.parse(File.read(File.expand_path("../fixtures/transcription/three_chunks.json", __dir__)))
     @run = LongformTranscript.prepare_for!(Document.create!(title: "Replay"),
@@ -26,6 +28,7 @@ class LongformTranscriptReplayTest < ActiveJob::TestCase
   teardown do
     LongformTranscript.chunk_duration = @old_duration
     LongformTranscript.chunk_overlap = @old_overlap
+    LongformTranscript.chunk_concurrency = @old_concurrency
     RubyLLM.config.openrouter_api_key = @old_key
     FileUtils.rm_rf(@run.audio_path.dirname) if @run
   end
@@ -55,7 +58,7 @@ class LongformTranscriptReplayTest < ActiveJob::TestCase
 
     finish_jobs
     assert_replay_result
-    assert_equal saved_output, first.reload.output
+    assert_equal saved_output.except("speaker_scope"), first.reload.output
     assert_equal [ 1, 1, 1 ], @run.chunks.pluck(:retry_count)
     assert_requested :post, ENDPOINT, times: 3
   end
@@ -79,6 +82,23 @@ class LongformTranscriptReplayTest < ActiveJob::TestCase
     assert_replay_result
     assert_equal [ 1, 2, 1 ], @run.chunks.pluck(:retry_count)
     assert_requested :post, ENDPOINT, times: 4
+  end
+
+  test "parallel clipping and RubyLLM requests preserve the same replay transcript" do
+    @run.define_singleton_method(:transcribe_chunk) do |chunk|
+      Thread.current[:replay_chunk_number] = chunk.number
+      super(chunk)
+    ensure
+      Thread.current[:replay_chunk_number] = nil
+    end
+    stub_request(:post, ENDPOINT).to_return do
+      response_for(@fixture.fetch("responses").fetch(Thread.current[:replay_chunk_number]))
+    end
+
+    @run.process_next_batch!(limit: 3)
+
+    assert_replay_result
+    assert_requested :post, ENDPOINT, times: 3
   end
 
   test "a duplicate worker cannot transcribe or finalize while another owns a live claim" do
