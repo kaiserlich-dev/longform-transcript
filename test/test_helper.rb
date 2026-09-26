@@ -51,7 +51,7 @@ class ActiveSupport::TestCase
 
   def profile
     { version: "test-v1", interface: :transcription, provider: :openrouter,
-      provider_options: { "sort" => "latency" } }
+      language: "en", provider_options: { "sort" => "latency" } }
   end
 
   def prepared_run(url: "https://audio.example/show.mp3?token=one")

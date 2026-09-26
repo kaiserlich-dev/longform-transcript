@@ -345,15 +345,15 @@ module LongformTranscript
       [ response, validated_multimodal_transcription(response, chunk), [] ]
     else
       begin
-        response = RubyLLM.transcribe(
-          clip_path.to_s,
+        options = {
           model: model,
           provider: provider,
-          language: profile.fetch(:language, "de"),
           format: "verbose_json",
           timestamps: [ :segment, :word ],
           provider_options: { provider: profile.fetch(:provider_options, {}) }
-        )
+        }
+        options[:language] = profile.fetch(:language) if profile[:language].present?
+        response = RubyLLM.transcribe(clip_path.to_s, **options)
         turns, words = validated_transcription(response, chunk)
         [ response, turns, words ]
       rescue JSON::ParserError, KeyError, TypeError, ArgumentError => error
@@ -364,12 +364,14 @@ module LongformTranscript
   end
 
   def multimodal_transcription_prompt(chunk)
+    return profile.fetch("instructions") if profile["instructions"].present?
+
     <<~PROMPT
-      Transkribiere dieses deutsche Podcast-Audio wortgetreu und vollständig.
-      Trenne jeden Sprecherwechsel. Verwende ausschließlich neutrale Sprecher-IDs wie speaker_1 und speaker_2;
-      erfinde keine Namen. start_ms und end_ms sind präzise Millisekunden relativ zum Anfang dieses
-      #{chunk.end_ms - chunk.start_ms} Millisekunden langen Audioausschnitts. Alle Zeitwerte müssen monoton sein,
-      innerhalb des Ausschnitts liegen und end_ms muss größer als start_ms sein. Gib nur das strukturierte Ergebnis aus.
+      Transcribe this recording verbatim and completely in its original language.
+      Separate every speaker change. Use only neutral speaker IDs such as speaker_1 and speaker_2;
+      do not invent names. start_ms and end_ms are precise milliseconds relative to the beginning of this
+      #{chunk.end_ms - chunk.start_ms} millisecond audio excerpt. All timestamps must be monotonic and within
+      the excerpt, and end_ms must be greater than start_ms. Return only the structured result.
     PROMPT
   end
 

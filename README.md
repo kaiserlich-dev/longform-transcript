@@ -29,12 +29,13 @@ end
 
 ```ruby
 profile = {
-  version: "de-v1",
+  version: "speaker-transcript-v1",
   interface: :transcription,
+  language: "en",
   provider_options: { "sort" => "latency" }
 }
-run = LongformTranscript.prepare_for!(podcast,
-  source_audio_url: podcast.audio_url, model: "openai/gpt-4o-mini-transcribe", profile: profile)
+run = LongformTranscript.prepare_for!(recording,
+  source_audio_url: recording.audio_url, model: "openai/gpt-4o-mini-transcribe", profile: profile)
 
 LongformTranscript::ProcessJob.perform_later(run.id) # one chunk per job; continues itself
 run.process_next_chunk!                              # synchronous one-chunk processing

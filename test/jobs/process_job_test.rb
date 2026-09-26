@@ -5,7 +5,7 @@ class LongformTranscriptProcessJobTest < ActiveJob::TestCase
   PROVIDER_OPTIONS = {
     "sort" => "latency",
     "options" => { "azure" => { "diarization" => { "enabled" => true },
-      "phraseList" => { "phrases" => [ "Wolfgang", "Thomas", "TWUP", "AskTNT", "Therapie", "Training" ] } } }
+      "phraseList" => { "phrases" => [ "Alice", "Bob" ] } } }
   }.freeze
   FakeTranscription = Data.define(
     :segments, :words, :model, :tokens
@@ -71,7 +71,7 @@ class LongformTranscriptProcessJobTest < ActiveJob::TestCase
 
     assert_equal :openrouter, provider_arguments.fetch(:provider)
     assert_equal MODEL, provider_arguments.fetch(:model)
-    assert_equal "de", provider_arguments.fetch(:language)
+    assert_equal "en", provider_arguments.fetch(:language)
     assert_equal "verbose_json", provider_arguments.fetch(:format)
     assert_equal [ :segment, :word ], provider_arguments.fetch(:timestamps)
     assert_equal({ provider: PROVIDER_OPTIONS.deep_symbolize_keys },
@@ -119,7 +119,7 @@ class LongformTranscriptProcessJobTest < ActiveJob::TestCase
       transcription = provider.transcribe(
         audio.path,
         model: model,
-        language: "de",
+        language: "en",
         format: "verbose_json",
         timestamps: [ :segment, :word ],
         provider_options: { provider: PROVIDER_OPTIONS }
@@ -128,7 +128,7 @@ class LongformTranscriptProcessJobTest < ActiveJob::TestCase
       assert_equal "verbose_json", request_payload.fetch("response_format")
       assert_equal %w[segment word], request_payload.fetch("timestamp_granularities")
       assert request_payload.dig("provider", "options", "azure", "diarization", "enabled")
-      assert_equal [ "Wolfgang", "Thomas", "TWUP", "AskTNT", "Therapie", "Training" ],
+      assert_equal [ "Alice", "Bob" ],
         request_payload.dig("provider", "options", "azure", "phraseList", "phrases")
       assert_equal 0, transcription.words.sole.fetch("speaker")
       assert_equal BigDecimal("0.001"), transcription.tokens.reported_cost

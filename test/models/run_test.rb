@@ -411,7 +411,7 @@ class LongformTranscriptRunTest < ActiveSupport::TestCase
   test "publication requires reviewed speaker mappings and notifies transcript subscribers" do
     published_run = nil
     LongformTranscript.publication_callback = ->(run) { published_run = run }
-    assert_raises(ActiveRecord::RecordInvalid) { @run.publish!("speaker_1" => "Thomas") }
+    assert_raises(ActiveRecord::RecordInvalid) { @run.publish!("speaker_1" => "Host") }
 
     chunk = prepare_chunks(duration_ms: 1_000).first
     chunk.update!(status: "completed", output: { "turns" => [
@@ -420,18 +420,18 @@ class LongformTranscriptRunTest < ActiveSupport::TestCase
     ] })
     @run.send(:finalize_if_complete!)
 
-    assert_raises(ArgumentError) { @run.publish!("speaker_1" => "Thomas") }
-    assert_raises(ArgumentError) { @run.publish!("speaker_1" => "Thomas", "speaker_2" => " ") }
+    assert_raises(ArgumentError) { @run.publish!("speaker_1" => "Host") }
+    assert_raises(ArgumentError) { @run.publish!("speaker_1" => "Host", "speaker_2" => " ") }
     @run.speaker_mappings.create!(
       speaker_id: "speaker_1", display_name: "Previous review", reviewed_at: Time.current
     )
-    @run.publish!("speaker_1" => "Thomas", "speaker_2" => "Wolfgang")
+    @run.publish!("speaker_1" => "Host", "speaker_2" => "Guest")
 
     assert_equal "approved", @run.reload.review_status
     assert_equal @run, published_run
     assert_predicate @run, :published_at?
     assert_equal @run, @document.transcript_runs.published.sole
-    assert_equal({ "speaker_1" => "Thomas", "speaker_2" => "Wolfgang" },
+    assert_equal({ "speaker_1" => "Host", "speaker_2" => "Guest" },
       @run.speaker_mappings.pluck(:speaker_id, :display_name).to_h)
     assert_raises(ActiveRecord::StatementInvalid) { @run.update_column(:status, "failed") }
   ensure
