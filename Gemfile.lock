@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    longform_transcript (0.1.0)
+    longform_transcript (0.2.0)
       rails (>= 7.1, < 9)
       ruby_llm (>= 2.0, < 3)
 

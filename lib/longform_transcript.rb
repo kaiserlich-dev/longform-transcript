@@ -4,6 +4,7 @@ require "active_job"
 require "active_support/core_ext/numeric/time"
 require "ruby_llm"
 require "longform_transcript/version"
+require "longform_transcript/section_alignment"
 require "longform_transcript/engine"
 
 module LongformTranscript
@@ -17,6 +18,10 @@ module LongformTranscript
 
     def prepare_for!(transcribable, source_audio_url:, model:, profile:)
       Run.prepare_for!(transcribable, source_audio_url: source_audio_url, model: model, profile: profile)
+    end
+
+    def align_sections(sections:, passages:, words: [], &section_text)
+      SectionAlignment.call(sections: sections, passages: passages, words: words, &section_text)
     end
   end
 
