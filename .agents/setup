@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+if ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null; then
+  sudo apt-get update
+  sudo apt-get install -y ffmpeg
+fi
+if [[ ! -x "$HOME/.local/bin/mise" ]]; then
+  curl -fsSL https://mise.run | sh
+fi
+export PATH="$HOME/.local/bin:$PATH"
+version="$(cat .ruby-version)"
+mise install "ruby@$version"
+mise exec "ruby@$version" -- bundle install
+
+# Make the pinned Ruby available to subsequent non-interactive login shells.
+marker="# longform-transcript Ruby toolchain"
+if ! grep -Fqx "$marker" "$HOME/.bash_profile" 2>/dev/null; then
+  ruby_bin="$(mise where "ruby@$version")/bin"
+  printf '\n%s\nexport PATH="%s:$PATH"\n' "$marker" "$ruby_bin" >> "$HOME/.bash_profile"
+fi

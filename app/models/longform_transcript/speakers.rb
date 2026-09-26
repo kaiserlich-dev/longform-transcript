@@ -38,17 +38,21 @@ module LongformTranscript
     attr_reader :completed_chunks
 
     def word_mapping(previous_words, words)
-      candidates = previous_words.group_by { |word| word.fetch("speaker_id") }
+      candidates = previous_words.group_by { |word| word.fetch("speaker_id") }.transform_values do |speaker_words|
+        speaker_words.group_by { |word| Text.normalize(word.fetch("text")) }.transform_values do |token_words|
+          token_words.pluck("start_ms").sort
+        end
+      end
       mapping = {}
       used = []
       words.group_by { |word| word.fetch("speaker_id") }.each do |local_speaker, local_words|
-        votes = candidates.to_h do |stable_speaker, stable_words|
-          matches = local_words.count do |word|
-            token = Text.normalize(word.fetch("text"))
-            token.present? && stable_words.any? do |candidate|
-              Text.normalize(candidate.fetch("text")) == token &&
-                (candidate.fetch("start_ms") - word.fetch("start_ms")).abs <= 250
-            end
+        tokens = local_words.map { |word| [ Text.normalize(word.fetch("text")), word.fetch("start_ms") ] }
+        votes = candidates.to_h do |stable_speaker, token_times|
+          matches = tokens.count do |token, start_ms|
+            next false if token.blank?
+
+            candidate = token_times[token]&.bsearch { |time| time >= start_ms - 250 }
+            candidate && candidate <= start_ms + 250
           end
           [ stable_speaker, matches ]
         end

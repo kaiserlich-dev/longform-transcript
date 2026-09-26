@@ -1,0 +1,46 @@
+{
+  "responses": [
+    {
+      "text": "Hello. Green trees grow",
+      "segments": [],
+      "words": [
+        { "speaker": "host", "start": 0.2, "end": 0.5, "word": "Hello." },
+        { "speaker": "guest", "start": 3.1, "end": 3.3, "word": "Green" },
+        { "speaker": "guest", "start": 3.5, "end": 3.7, "word": "trees" },
+        { "speaker": "guest", "start": 4.2, "end": 4.4, "word": "grow" }
+      ],
+      "usage": { "input_tokens": 11, "output_tokens": 7, "cost": 0.001 }
+    },
+    {
+      "text": "Green trees grow Quiet rivers flow",
+      "segments": [],
+      "words": [
+        { "speaker": "voice_b", "start": 0.1, "end": 0.3, "word": "Green" },
+        { "speaker": "voice_b", "start": 0.5, "end": 0.7, "word": "trees" },
+        { "speaker": "voice_b", "start": 1.2, "end": 1.4, "word": "grow" },
+        { "speaker": "voice_b", "start": 4.1, "end": 4.3, "word": "Quiet" },
+        { "speaker": "voice_b", "start": 4.5, "end": 4.7, "word": "rivers" },
+        { "speaker": "voice_b", "start": 5.1, "end": 5.3, "word": "flow" }
+      ],
+      "usage": { "input_tokens": 19, "output_tokens": 13, "cost": 0.002 }
+    },
+    {
+      "text": "Quiet rivers flow Goodbye.",
+      "segments": [],
+      "words": [
+        { "speaker": "voice_x", "start": 0.1, "end": 0.3, "word": "Quiet" },
+        { "speaker": "voice_x", "start": 0.5, "end": 0.7, "word": "rivers" },
+        { "speaker": "voice_x", "start": 1.1, "end": 1.3, "word": "flow" },
+        { "speaker": "voice_y", "start": 2.2, "end": 2.6, "word": "Goodbye." }
+      ],
+      "usage": { "input_tokens": 23, "output_tokens": 17, "cost": 0.004 }
+    }
+  ],
+  "expected_turns": [
+    [0, 200, 500, "speaker_1", "Hello."],
+    [1, 3100, 3700, "speaker_2", "Green trees"],
+    [2, 4200, 7700, "speaker_2", "grow Quiet rivers"],
+    [3, 8100, 8300, "speaker_2", "flow"],
+    [4, 9200, 9600, "speaker_1", "Goodbye."]
+  ]
+}

@@ -18,11 +18,11 @@ class LongformTranscriptProcessJobTest < ActiveJob::TestCase
   test "schedules one continuation only while work remains" do
     run = prepared_run
     klass = LongformTranscript::Run
-    klass.alias_method(:original_process_next_chunk_for_test, :process_next_chunk!)
+    klass.alias_method(:original_process_next_chunk_for_test, :process_next_batch!)
     klass.alias_method(:original_work_remaining_for_test, :work_remaining?)
-    klass.remove_method(:process_next_chunk!)
+    klass.remove_method(:process_next_batch!)
     klass.remove_method(:work_remaining?)
-    klass.define_method(:process_next_chunk!) { update!(failure_code: "processed") }
+    klass.define_method(:process_next_batch!) { update!(failure_code: "processed") }
     klass.define_method(:work_remaining?) { true }
 
     assert_enqueued_with(job: LongformTranscript::ProcessJob, args: [ run.id ]) do
@@ -31,9 +31,9 @@ class LongformTranscriptProcessJobTest < ActiveJob::TestCase
     assert_equal "processed", run.reload.failure_code
   ensure
     if klass&.method_defined?(:original_process_next_chunk_for_test)
-      klass.remove_method(:process_next_chunk!)
+      klass.remove_method(:process_next_batch!)
       klass.remove_method(:work_remaining?)
-      klass.alias_method(:process_next_chunk!, :original_process_next_chunk_for_test)
+      klass.alias_method(:process_next_batch!, :original_process_next_chunk_for_test)
       klass.alias_method(:work_remaining?, :original_work_remaining_for_test)
       klass.remove_method(:original_process_next_chunk_for_test)
       klass.remove_method(:original_work_remaining_for_test)

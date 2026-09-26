@@ -5,7 +5,7 @@ module LongformTranscript
 
     def perform(run_id)
       run = Run.find(run_id)
-      run.process_next_chunk!
+      run.process_next_batch!
       self.class.perform_later(run.id) if run.work_remaining?
     rescue Run::ExternalFailure => error
       run&.record_source_failure!(error)
