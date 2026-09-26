@@ -32,6 +32,7 @@ ActiveRecord::Schema.define do
 end
 
 class Document < ActiveRecord::Base
+  has_many :transcript_runs, as: :transcribable, class_name: "LongformTranscript::Run"
 end
 
 LongformTranscript.storage_root = Pathname(Dir.tmpdir).join("longform-transcript-tests")
