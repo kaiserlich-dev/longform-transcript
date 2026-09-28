@@ -39,12 +39,20 @@ class LongformTranscriptRunTest < ActiveSupport::TestCase
     @run.send(:prepare_chunks!, @run.source_audio_sha256, @run.audio_duration_ms)
     @run.send(:prepare_chunks!, @run.source_audio_sha256, @run.audio_duration_ms)
 
-    assert_equal 5, @run.chunks.count
+    assert_equal 4, @run.chunks.count
     assert_equal [
       [ 0, 0, 305_000 ], [ 1, 295_000, 605_000 ], [ 2, 595_000, 905_000 ],
-      [ 3, 895_000, 1_205_000 ], [ 4, 1_195_000, 1_205_000 ]
+      [ 3, 895_000, 1_205_000 ]
     ], @run.chunks.pluck(:number, :start_ms, :end_ms)
     assert_equal [ "a" * 64 ], @run.chunks.distinct.pluck(:source_digest)
+  end
+
+  test "does not create a trailing chunk already covered by overlap" do
+    prepare_chunks(duration_ms: 600_842)
+
+    assert_equal [
+      [ 0, 0, 305_000 ], [ 1, 295_000, 600_842 ]
+    ], @run.chunks.pluck(:number, :start_ms, :end_ms)
   end
 
   test "claims are atomic, ordered, resumable, and bounded" do
