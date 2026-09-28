@@ -259,7 +259,7 @@ module LongformTranscript
     rescue *RETRYABLE_ERRORS
       fail_chunk!(chunk, "provider_transient", retryable: true)
     rescue JSON::ParserError, KeyError, TypeError, ArgumentError => error
-      log_invalid_transcription_shape(error)
+      log_invalid_transcription_shape(error, chunk)
       fail_chunk!(chunk, "invalid_structured_output", retryable: true)
     rescue RubyLLM::Error
       fail_chunk!(chunk, "provider_permanent", retryable: false)
@@ -320,8 +320,9 @@ module LongformTranscript
     def validated_transcription(response, chunk) = Transcriber.new(model: model, profile: profile).send(:normalize_transcription, response, chunk)
     def validated_multimodal_transcription(response, chunk) = Transcriber.new(model: model, profile: profile).send(:normalize_multimodal, response, chunk)
 
-    def log_invalid_transcription_shape(error)
-      Rails.logger.warn({ event: "speaker_transcript_invalid_output", run_id: id, error_class: error.class.name,
+    def log_invalid_transcription_shape(error, chunk)
+      Rails.logger.warn({ event: "speaker_transcript_invalid_output", run_id: id, chunk_number: chunk.number,
+        error_class: error.class.name,
         reason: error.respond_to?(:reason) ? error.reason : nil,
         item_index: error.respond_to?(:item_index) ? error.item_index : nil }.compact.to_json)
     end

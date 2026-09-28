@@ -8,7 +8,7 @@ class LongformTranscriptProcessJobTest < ActiveJob::TestCase
       "phraseList" => { "phrases" => [ "Alice", "Bob" ] } } }
   }.freeze
   FakeTranscription = Data.define(
-    :segments, :words, :model, :tokens
+    :text, :segments, :words, :model, :tokens
   )
 
   test "uses the transcript queue for bounded parallel processing" do
@@ -53,6 +53,7 @@ class LongformTranscriptProcessJobTest < ActiveJob::TestCase
     run.send(:prepare_chunks!, digest, duration)
     provider_arguments = nil
     transcription = FakeTranscription.new(
+      "Test",
       [ { "speaker" => 0, "start" => 0.1, "end" => 0.5, "text" => "Test" } ],
       [ { "speaker" => 0, "start" => 0.1, "end" => 0.5, "word" => "Test" } ],
       MODEL,

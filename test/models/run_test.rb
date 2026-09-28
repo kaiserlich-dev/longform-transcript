@@ -2,7 +2,7 @@ require "test_helper"
 
 class LongformTranscriptRunTest < ActiveSupport::TestCase
   include ActiveJob::TestHelper
-  FakeTranscription = Data.define(:segments, :words)
+  FakeTranscription = Data.define(:text, :segments, :words)
   FakeMultimodalResponse = Data.define(:content, :model_id)
 
   setup do
@@ -150,6 +150,7 @@ class LongformTranscriptRunTest < ActiveSupport::TestCase
   test "transcription preserves real segment and word timestamps and normalizes speaker IDs" do
     chunk = prepare_chunks(duration_ms: 60_000).first
     response = FakeTranscription.new(
+      "Hallo Welt",
       [
         { "speaker" => "A", "start" => 0.25, "end" => 1.5, "text" => " Hallo " },
         { "speaker" => "B", "start" => 1.5, "end" => 2.75, "text" => "Welt" }
@@ -205,7 +206,7 @@ class LongformTranscriptRunTest < ActiveSupport::TestCase
     ]
 
     [ [], nil, [ { "speaker" => "A", "start" => 2.0, "end" => 1.0, "text" => "Kaputt" } ] ].each do |segments|
-      turns, = @run.send(:validated_transcription, FakeTranscription.new(segments, words), chunk)
+      turns, = @run.send(:validated_transcription, FakeTranscription.new("Hallo Welt", segments, words), chunk)
 
       assert_equal %w[Hallo Welt], turns.pluck("text")
       assert_equal %w[speaker_1 speaker_2], turns.pluck("speaker_id")
@@ -217,8 +218,8 @@ class LongformTranscriptRunTest < ActiveSupport::TestCase
     valid_segments = [ { "speaker" => "A", "start" => 0.1, "end" => 1.0, "text" => "Text" } ]
 
     invalid_responses = [
-      FakeTranscription.new(valid_segments, [ { "speaker" => nil, "start" => 0.1, "end" => 0.5, "word" => "Text" } ]),
-      FakeTranscription.new(valid_segments, [ { "speaker" => "A", "start" => 59.0, "end" => 62.0, "word" => "Text" } ])
+      FakeTranscription.new("Text", valid_segments, [ { "speaker" => nil, "start" => 0.1, "end" => 0.5, "word" => "Text" } ]),
+      FakeTranscription.new("Text", valid_segments, [ { "speaker" => "A", "start" => 59.0, "end" => 62.0, "word" => "Text" } ])
     ]
     expected_reasons = %w[missing_speaker out_of_range]
     invalid_responses.zip(expected_reasons).each do |response, reason|
@@ -232,7 +233,7 @@ class LongformTranscriptRunTest < ActiveSupport::TestCase
 
   test "transcription stable-sorts valid provider words by timestamp" do
     chunk = prepare_chunks(duration_ms: 60_000).first
-    response = FakeTranscription.new([], [
+    response = FakeTranscription.new("früher später", [], [
       { "speaker" => "A", "start" => 0.5, "end" => 0.8, "word" => "später" },
       { "speaker" => "A", "start" => 0.1, "end" => 0.4, "word" => "früher" }
     ])
@@ -247,6 +248,7 @@ class LongformTranscriptRunTest < ActiveSupport::TestCase
   test "transcription derives turns from diarized words when aggregate segments have no speaker" do
     chunk = prepare_chunks(duration_ms: 60_000).first
     response = FakeTranscription.new(
+      "Hallo Welt",
       [ { "start" => 0, "end" => 2, "text" => "Hallo Welt" } ],
       [
         { "speaker" => 0, "start" => 0.1, "end" => 0.5, "word" => "Hallo" },

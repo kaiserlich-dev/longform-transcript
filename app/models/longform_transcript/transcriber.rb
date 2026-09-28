@@ -5,10 +5,10 @@ module LongformTranscript
     class InvalidOutput < ArgumentError
       attr_reader :reason, :item_index
 
-      def initialize(reason, item_index)
+      def initialize(reason, item_index = nil)
         @reason = reason
         @item_index = item_index
-        super("#{reason} at word #{item_index}")
+        super(item_index ? "#{reason} at word #{item_index}" : reason)
       end
     end
 
@@ -88,7 +88,9 @@ module LongformTranscript
 
     def normalize_transcription(response, chunk)
       words = response.words
-      raise TypeError unless words.is_a?(Array) && words.any?
+      segments = response.segments
+      return [ [], [] ] if response.text.blank? && [ words, segments ].all? { |items| items.nil? || items.empty? }
+      raise InvalidOutput.new("missing_timed_words") unless words.is_a?(Array) && words.any?
 
       duration = chunk.end_ms - chunk.start_ms
       timestamped_words = words.map.with_index { |item, index| normalize_word(item, index, duration) }
@@ -99,7 +101,7 @@ module LongformTranscript
         { "speaker_id" => speaker, "start_ms" => word.fetch(:start_ms) + chunk.start_ms,
           "end_ms" => [ word.fetch(:end_ms), duration ].min + chunk.start_ms, "text" => word.fetch(:text) }
       end
-      turns = normalize_segments(response.segments, speakers, chunk) || turns_from_words(normalized_words)
+      turns = normalize_segments(segments, speakers, chunk) || turns_from_words(normalized_words)
       [ turns, normalized_words ]
     end
 
