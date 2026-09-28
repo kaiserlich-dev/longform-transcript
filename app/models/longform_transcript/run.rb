@@ -208,7 +208,7 @@ module LongformTranscript
 
       chunk_duration_ms = LongformTranscript.chunk_duration.in_milliseconds
       overlap_ms = LongformTranscript.chunk_overlap.in_milliseconds
-      (duration_ms.to_f / chunk_duration_ms).ceil.times do |number|
+      [ ((duration_ms - overlap_ms).to_f / chunk_duration_ms).ceil, 1 ].max.times do |number|
         core_start = number * chunk_duration_ms
         core_end = [ (number + 1) * chunk_duration_ms, duration_ms ].min
         chunks.create!(number: number, start_ms: [ core_start - overlap_ms, 0 ].max,
