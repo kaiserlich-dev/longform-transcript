@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+# No services or authentication are needed. Never install on the wake path.
+export PATH="$HOME/.local/share/mise/installs/ruby/$(cat .ruby-version)/bin:$PATH"
+bundler_version="$(awk '/^BUNDLED WITH$/ { getline; print $1 }' Gemfile.lock)"
+bundle "_${bundler_version}_" check
+command -v ffmpeg ffprobe >/dev/null

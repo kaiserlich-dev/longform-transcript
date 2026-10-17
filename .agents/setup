@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+step() { printf '\n==> %s\n' "$*"; }
+SECONDS=0
+step "Checking system packages"
+missing=()
+for package in build-essential libyaml-dev libssl-dev zlib1g-dev libsqlite3-dev ffmpeg; do
+  if [[ "$(dpkg-query -W -f='${Status}' "$package" 2>/dev/null || true)" != "install ok installed" ]]; then
+    missing+=("$package")
+  fi
+done
+if ((${#missing[@]})); then
+  sudo apt-get update
+  sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y "${missing[@]}"
+fi
+step "System packages ready (${SECONDS}s); installing Ruby"
+export PATH="$HOME/.local/bin:$PATH"
+if ! command -v mise >/dev/null; then
+  curl --fail --silent --show-error --location https://mise.run | sh
+fi
+export MISE_RUBY_COMPILE=false
+ruby_version="$(cat .ruby-version)"
+mise install "ruby@$ruby_version"
+export PATH="$(mise where "ruby@$ruby_version")/bin:$PATH"
+
+# Login shells used by Amp and supervised services must also find this Ruby.
+marker="# longform-transcript orb Ruby"
+if ! grep -Fqx "$marker" "$HOME/.bash_profile" 2>/dev/null; then
+  cat >> "$HOME/.bash_profile" <<EOF
+
+$marker
+case "\$PWD/" in
+  "$PWD/"*)
+    export PATH="\$HOME/.local/share/mise/installs/ruby/\$(cat '$PWD/.ruby-version')/bin:\$HOME/.local/bin:\$PATH"
+    ;;
+esac
+EOF
+fi
+
+step "Ruby ready (${SECONDS}s); installing locked gems"
+bundler_version="$(awk '/^BUNDLED WITH$/ { getline; print $1 }' Gemfile.lock)"
+if ! gem list --installed --exact bundler --version "$bundler_version" >/dev/null; then
+  gem install bundler --version "$bundler_version" --no-document
+fi
+export BUNDLE_FROZEN=true
+bundle "_${bundler_version}_" check || bundle "_${bundler_version}_" install --jobs 4
+step "Setup complete (${SECONDS}s)"
